@@ -7328,6 +7328,363 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthDegradedResponse'
+  "/api/v1/goofish/items/publish":
+    post:
+      operationId: postApiV1GoofishItemsPublish
+      summary: 货源台：按模板商品发布（goofish fork）
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GoofishPublishRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishWriteResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/goofish/items/{cookie_id}/edit-detail":
+    get:
+      operationId: getApiV1GoofishItemsBycookie_idEditDetail
+      summary: 货源台：原样返回 mtop.idle.pc.idleitem.editDetail 的 data（goofish fork）
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+          - name: item_id
+            in: query
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishEditDetailResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/goofish/items/{cookie_id}/on-sale":
+    get:
+      operationId: getApiV1GoofishItemsBycookie_idOnSale
+      summary: 货源台：读取一页在售商品（goofish fork）
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+          - name: page
+            in: query
+            required: false
+            schema:
+              type: integer
+              minimum: 1
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishOnSaleResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/goofish/items/{cookie_id}/{item_id}/edit":
+    post:
+      operationId: postApiV1GoofishItemsBycookie_idByitem_idEdit
+      summary: 货源台：修改商品标题、描述、价格或图片（goofish fork）
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+          - name: item_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GoofishEditRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishWriteResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/goofish/items/{cookie_id}/{item_id}/downshelf":
+    post:
+      operationId: postApiV1GoofishItemsBycookie_idByitem_idDownshelf
+      summary: 货源台：下架商品（goofish fork）
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+          - name: item_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishWriteResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     cookieAuth:
@@ -7335,6 +7692,58 @@ components:
       in: cookie
       name: session
   schemas:
+    GoofishPublishRequest:
+      type: object
+      required: [cookie_id, template_item_id, title, price, images]
+      properties:
+        cookie_id: {type: string}
+        template_item_id: {type: string, description: 同账号下的模板商品，沿用其类目、属性、发货方式、发货地和数量}
+        title: {type: string, description: 标题，同时作为描述第一行}
+        description: {type: string, description: 标题之后的正文}
+        price: {type: string, description: 售价（元，最多两位小数）}
+        images:
+          type: array
+          description: 按顺序的商品图片，1–9 张
+          items: {type: string, format: binary}
+    GoofishEditRequest:
+      type: object
+      properties:
+        title: {type: string}
+        description: {type: string}
+        price: {type: string}
+        images:
+          type: array
+          description: 给出时整组按顺序替换
+          items: {type: string, format: binary}
+    GoofishWriteResponse:
+      type: object
+      required: [success, item_id]
+      properties:
+        success: {type: boolean}
+        item_id: {type: string}
+        item_url: {type: string}
+        status: {type: string}
+        warnings: {type: array, items: {type: string}}
+    GoofishEditDetailResponse:
+      type: object
+      description: mtop.idle.pc.idleitem.editDetail 的 data 原样返回
+      additionalProperties: true
+    GoofishOnSaleItem:
+      type: object
+      required: [item_id, title, price, status]
+      properties:
+        item_id: {type: string}
+        title: {type: string}
+        price: {type: string}
+        status: {type: string}
+    GoofishOnSaleResponse:
+      type: object
+      required: [success, items, has_more]
+      properties:
+        success: {type: boolean}
+        items: {type: array, items: {$ref: '#/components/schemas/GoofishOnSaleItem'}}
+        has_more: {type: boolean}
+        page: {type: integer}
     ApiResponse:
       type: object
       required: [success]

@@ -100,6 +100,8 @@ type itemCatalogServices struct {
 	previewPersistence *itemapp.BatchPreviewPersistenceService
 	// singlePublish 提供单商品发布服务。
 	singlePublish *itemapp.Service
+	// goofishItems 是货源台专用商品接口（goofish fork），复用单商品发布端口。
+	goofishItems *adapter.GoofishItemsPort
 }
 
 // buildItemCatalogServices 构造商品目录和发布服务，并把平台会话恢复回调限制在组合根。
@@ -143,5 +145,5 @@ func buildItemCatalogServices(dependencies Dependencies, sessionRecovery adapter
 	if itemSinglePublishErr != nil {
 		return itemCatalogServices{}, fmt.Errorf("构造单商品发布服务失败: %w", itemSinglePublishErr)
 	}
-	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish}, nil
+	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish, goofishItems: adapter.NewGoofishItemsPort(itemPublishPort)}, nil
 }

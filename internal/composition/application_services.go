@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	goofishapp "xianyu-go/internal/application/goofishitems"
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
@@ -59,6 +60,8 @@ type Services struct {
 	orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
 	// itemSinglePublish 是仅负责单商品发布用例的纯应用服务。
 	itemSinglePublish *itemapp.Service
+	// goofishItems 是货源台专用商品接口端口（goofish fork）。
+	goofishItems goofishapp.Port
 	// itemBatchCoordinator 是商品批量发布 worker、恢复扫描和关闭等待的生命周期拥有者。
 	itemBatchCoordinator *itemapp.BatchWorkerCoordinator
 	// itemBatchPreview 是商品批量发布表格预检应用服务。
@@ -302,9 +305,11 @@ type AccountLogin interface {
 
 // TransportPorts 是组合层向 transport 投影层交付的只读应用服务快照。
 type TransportPorts struct {
-	Orders                      *orderapp.ServiceSet
-	OrderRefreshJobs            *orderapp.RefreshJobService
-	ItemSinglePublish           *itemapp.Service
+	Orders            *orderapp.ServiceSet
+	OrderRefreshJobs  *orderapp.RefreshJobService
+	ItemSinglePublish *itemapp.Service
+	// GoofishItems 是货源台专用商品接口端口（goofish fork）。
+	GoofishItems                goofishapp.Port
 	ItemBatchPreview            *itemapp.BatchPreviewService
 	ItemBatchManagement         *itemapp.BatchManagementService
 	ItemCategoryRecommendation  *itemapp.CategoryRecommendationService
@@ -350,7 +355,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		return TransportPorts{}
 	}
 	return TransportPorts{
-		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish,
+		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, GoofishItems: services.goofishItems,
 		ItemBatchPreview: services.itemBatchPreview, ItemBatchManagement: services.itemBatchManagement,
 		ItemCategoryRecommendation: services.itemCategoryRecommendation, ItemBatchPreviewPersistence: services.itemBatchPreviewPersistence,
 		ItemBatchLocalPublish: services.itemBatchLocalPublish, ItemSync: services.itemSync, ItemCatalog: services.itemCatalog,
@@ -494,6 +499,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		orderRefreshJobs:            orderRefreshJobs,
 		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
 		itemSinglePublish:           catalogServices.singlePublish,
+		goofishItems:                catalogServices.goofishItems,
 		itemBatchCoordinator:        batchServices.coordinator,
 		itemBatchPreview:            batchServices.preview,
 		itemBatchManagement:         batchServices.management,

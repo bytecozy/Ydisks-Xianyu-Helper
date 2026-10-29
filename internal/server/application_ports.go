@@ -464,6 +464,8 @@ type ApplicationPorts struct {
 	settings SettingsPort
 	// admin 是管理员用户与统计用例。
 	admin AdminPort
+	// goofishItems 是货源台专用商品接口（goofish fork，可选；未装配时接口返回 503）。
+	goofishItems GoofishItemsPort
 }
 
 // ApplicationPortsInput 是组合根向 HTTP transport 交付的完整应用 Port 快照。
@@ -509,6 +511,8 @@ type ApplicationPortsInput struct {
 	Keywords                    KeywordsPort
 	Settings                    SettingsPort
 	Admin                       AdminPort
+	// GoofishItems 是货源台专用商品接口（goofish fork，可选）。
+	GoofishItems GoofishItemsPort
 }
 
 // NewApplicationPorts 将组合根已经验证的用例依赖冻结为 Server 私有快照。
@@ -528,6 +532,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
 		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin,
+		goofishItems: input.GoofishItems,
 	}
 }
 
