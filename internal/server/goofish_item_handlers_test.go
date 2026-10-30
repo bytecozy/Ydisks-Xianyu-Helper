@@ -18,6 +18,7 @@ type goofishStubPort struct {
 	err         error
 	lastPublish goofishapp.PublishInput
 	lastEdit    goofishapp.EditInput
+	already     bool
 	calls       int
 }
 
@@ -55,6 +56,14 @@ func (p *goofishStubPort) Downshelf(_ context.Context, _ int64, _, itemID string
 	return goofishapp.WriteResult{ItemID: itemID}, nil
 }
 
+func (p *goofishStubPort) Polish(_ context.Context, _ int64, _, itemID string) (goofishapp.PolishResult, error) {
+	p.calls++
+	if p.err != nil {
+		return goofishapp.PolishResult{}, p.err
+	}
+	return goofishapp.PolishResult{ItemID: itemID, AlreadyPolished: p.already}, nil
+}
+
 func (p *goofishStubPort) OnSale(context.Context, int64, string, int) (goofishapp.OnSalePage, error) {
 	p.calls++
 	if p.err != nil {
@@ -85,7 +94,7 @@ func goofishMultipart(t *testing.T, fields map[string]string, images int) (*byte
 	return &body, writer.FormDataContentType()
 }
 
-// TestGoofishItemRoutesSuccessContracts 覆盖五个货源台接口的成功响应契约。
+// TestGoofishItemRoutesSuccessContracts 覆盖六个货源台接口的成功响应契约。
 func TestGoofishItemRoutesSuccessContracts(t *testing.T) {
 	server, _, cleanup := newTestServer(t)
 	defer cleanup()
@@ -130,6 +139,15 @@ func TestGoofishItemRoutesSuccessContracts(t *testing.T) {
 	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"status":"off_shelf"`)) {
 		t.Fatalf("downshelf body = %s", recorder.Body.String())
 	}
+	recorder = do(httptest.NewRequest(http.MethodPost, "/api/v1/goofish/items/acc1/555/polish", nil))
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"status":"polished"`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"item_id":"555"`)) {
+		t.Fatalf("polish body = %s", recorder.Body.String())
+	}
+	port.already = true
+	recorder = do(httptest.NewRequest(http.MethodPost, "/api/v1/goofish/items/acc1/555/polish", nil))
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"status":"already_polished"`)) {
+		t.Fatalf("polish again body = %s", recorder.Body.String())
+	}
 	recorder = do(httptest.NewRequest(http.MethodGet, "/api/v1/goofish/items/acc1/on-sale?page=2", nil))
 	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"has_more":true`)) {
 		t.Fatalf("on-sale body = %s", recorder.Body.String())
@@ -160,6 +178,11 @@ func TestGoofishItemRoutesErrorConvention(t *testing.T) {
 		{"risk", goofishapp.KindRisk, "/api/v1/goofish/items/acc1/9/downshelf", 409, "risk_control"},
 		{"offline", goofishapp.KindAccountOffline, "/api/v1/goofish/items/acc1/9/downshelf", 409, "account_offline"},
 		{"invalid", goofishapp.KindInvalid, "/api/v1/goofish/items/acc1/9/downshelf", 400, "invalid_request"},
+		{"polish rejected", goofishapp.KindRejected, "/api/v1/goofish/items/acc1/9/polish", 502, "polish_failed"},
+		{"polish uncertain", goofishapp.KindUncertain, "/api/v1/goofish/items/acc1/9/polish", 502, "polish_uncertain"},
+		{"polish missing", goofishapp.KindNotFound, "/api/v1/goofish/items/acc1/9/polish", 404, "item_not_found"},
+		{"polish risk", goofishapp.KindRisk, "/api/v1/goofish/items/acc1/9/polish", 409, "risk_control"},
+		{"polish offline", goofishapp.KindAccountOffline, "/api/v1/goofish/items/acc1/9/polish", 409, "account_offline"},
 		{"on-sale failed", goofishapp.KindRejected, "/api/v1/goofish/items/acc1/on-sale", 502, "on_sale_failed"},
 	}
 	for _, tc := range cases {
@@ -209,6 +232,13 @@ func TestGoofishItemRoutesErrorConvention(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("not owned status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/goofish/items/not-mine/9/polish", nil)
+	request.AddCookie(session)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("polish not owned status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if port.calls != 0 {
 		t.Fatalf("端口被调用 %d 次", port.calls)

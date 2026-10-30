@@ -3,7 +3,7 @@
 本文件只存在于 `bytecozy/Ydisks-Xianyu-Helper` 的 `goofish` 分支。分支基于上游 tag `v1.0.14`，
 镜像 tag 形如 `ghcr.io/bytecozy/ydisks-xianyu-helper:v1.0.14-goofish.N`。
 
-货源台（佳佳游戏库铺货）通过这组接口在服务器上发布、编辑、下架闲鱼商品和对账，不再依赖运营电脑上的 Chrome 插件。
+货源台（佳佳游戏库铺货）通过这组接口在服务器上发布、编辑、下架、擦亮闲鱼商品和对账，不再依赖运营电脑上的 Chrome 插件。
 
 ## 鉴权
 
@@ -18,6 +18,7 @@
 | POST | `/api/v1/goofish/items/publish` | 按模板商品发布（multipart） |
 | POST | `/api/v1/goofish/items/{cookie_id}/{item_id}/edit` | 改标题/描述/价格/图片（multipart） |
 | POST | `/api/v1/goofish/items/{cookie_id}/{item_id}/downshelf` | 下架 |
+| POST | `/api/v1/goofish/items/{cookie_id}/{item_id}/polish` | 擦亮（今天已擦亮也算成功） |
 | GET | `/api/v1/goofish/items/{cookie_id}/on-sale?page=N` | 一页在售商品（20 条），不写本地库 |
 
 ### POST /api/v1/goofish/items/publish
@@ -47,6 +48,14 @@ multipart 字段都可选，至少给一个：`title`、`description`、`price`�
 成功：`200 {"success":true,"item_id":"…","status":"off_shelf"}`。
 商品本来就不在售：`409 already_off_shelf`；商品不存在：`404 item_not_found`。
 
+### POST /api/v1/goofish/items/{cookie_id}/{item_id}/polish
+
+无请求体。成功：`200 {"success":true,"item_id":"…","status":"polished"}`；
+闲鱼说今天已经擦亮过（`IDLEITEM_POLISH_AGAIN`、`POLISH_DUPLICATE`、`已经擦亮`、`一天只能擦亮一次`）：
+`200 {"success":true,"item_id":"…","status":"already_polished"}`。
+商品不存在：`404 item_not_found`；商品不在售/已售出等闲鱼明确拒绝：`502 polish_failed`（message 带闲鱼原文）；
+结果不明：`502 polish_uncertain`。擦亮是幂等的，`polish_uncertain` 直接重试即可。
+
 ### GET /api/v1/goofish/items/{cookie_id}/on-sale?page=N
 
 `200 {"success":true,"items":[{"item_id","title","price","status"}],"has_more":bool,"page":N}`。
@@ -65,8 +74,8 @@ multipart 字段都可选，至少给一个：`title`、`description`、`price`�
 | 409 | `account_offline` | 账号凭证不可用或登录 Session 失效（同时在后台触发账号恢复）。**没改到闲鱼** |
 | 409 | `risk_control` | 触发风控（RGV587、FAIL_SYS_USER_VALIDATE、punish、captcha、x5secdata），不重试。**没改到闲鱼** |
 | 409 | `already_off_shelf` | 下架时商品本来就不在售。**没改到闲鱼** |
-| 502 | `publish_failed` / `edit_failed` / `downshelf_failed` / `on_sale_failed` / `edit_detail_failed` | 闲鱼明确拒绝（message 带闲鱼原文），或者写请求根本没发出（前置的 editDetail / 图片上传失败、连接没建立、令牌重签失败）。**没改到闲鱼** |
-| 502 | `publish_uncertain` / `edit_uncertain` / `downshelf_uncertain` | 写请求已发出但结果不明：超时、连接中断、HTTP 非 2xx、响应不是 JSON、`FAIL_SYS_*` 系统错误、ret 为空、发布成功却没有 item_id。**需要人工确认** |
+| 502 | `publish_failed` / `edit_failed` / `downshelf_failed` / `polish_failed` / `on_sale_failed` / `edit_detail_failed` | 闲鱼明确拒绝（message 带闲鱼原文），或者写请求根本没发出（前置的 editDetail / 图片上传失败、连接没建立、令牌重签失败）。**没改到闲鱼** |
+| 502 | `publish_uncertain` / `edit_uncertain` / `downshelf_uncertain` / `polish_uncertain` | 写请求已发出但结果不明：超时、连接中断、HTTP 非 2xx、响应不是 JSON、`FAIL_SYS_*` 系统错误、ret 为空、发布成功却没有 item_id。**需要人工确认** |
 | 500 | `internal_error` | 只会出现在调用闲鱼之前（查账号失败）。**没改到闲鱼** |
 | 503 | `goofish_items_unavailable` | 接口没装配（不应出现）。**没改到闲鱼** |
 
@@ -139,6 +148,17 @@ multipart 字段都可选，至少给一个：`title`、`description`、`price`�
 
 ret SUCCESS 但 `data.success=false` 算 `downshelf_failed`。成功或 `already_off_shelf` 时，本地 `item_info` 存在则在详情 JSON 里记 `goofish_status=off_shelf`、`goofish_off_shelf_at`（不删除记录）。
 
+### polish（`mtop.taobao.idle.item.polish` 2.0，备用 `mtop.idle.item.polish` 1.0）
+
+```json
+{"itemId": "<item_id>"}
+```
+
+与上游 `PolishItem` 相同：主接口失败（风控、登录失效除外）再调备用接口，两次调用各占一个节流时间槽。
+「今天已擦亮」在任一接口出现都算成功（复用上游 `duplicatePolishError`）。ret SUCCESS 但 `data.success=false`
+算闲鱼拒绝（文案是已擦亮时仍算成功）。主接口结果不明时，备用接口除「不存在」以外的失败都算 `polish_uncertain`；
+否则按备用接口的结果分类，主接口说「不存在」、备用接口只是拒绝时仍报 `item_not_found`。不写本地 `item_info`。
+
 ### on-sale（`mtop.idle.web.xyh.item.list` 1.0）
 
 与上游商品同步相同的在售分组参数：
@@ -151,7 +171,7 @@ ret SUCCESS 但 `data.success=false` 算 `downshelf_failed`。成功或 `already
 
 ## 节流与凭证
 
-- 同一账号的每次闲鱼请求（editDetail、每张图片上传、publish/edit/downshelf、列表）之间至少间隔 2 秒，按预约时间槽排队（`internal/adapter/goofish_items.go` 的 `goofishPacer`，进程内）。发布 9 张图约需 20 秒以上。
+- 同一账号的每次闲鱼请求（editDetail、每张图片上传、publish/edit/downshelf/polish、列表）之间至少间隔 2 秒，按预约时间槽排队（`internal/adapter/goofish_items.go` 的 `goofishPacer`，进程内）。发布 9 张图约需 20 秒以上。
 - 整条链路 100 秒超时，保证在 HTTP WriteTimeout（2 分钟）前给出明确结果。
 - 凭证读取、Cookie 会话（含完整 Cookie Jar）写回、运行实例 Cookie 同步复用上游 `ItemPublishPort`；期间凭证被别的流程改过则不覆盖。
 - 登录失效时在后台触发上游的账号恢复，本次请求直接返回 `409 account_offline`，不自动重试。
@@ -171,7 +191,7 @@ ret SUCCESS 但 `data.success=false` 算 `downshelf_failed`。成功或 `already
 - `internal/server/application_ports.go`：`ApplicationPorts`/`ApplicationPortsInput` 增加可选的 `goofishItems`（不在必需校验里）。
 - `internal/server/versioned_session_routes.go`：挂载 `mountVersionedGoofishItems`。
 - `internal/composition/application_services.go`、`application_services_items.go`、`runtime/server_dependencies.go`：把 `GoofishItemsPort` 传到 Server。
-- `api/openapi.yaml`：登记 5 个 operation 和对应 schema（上游有路由与 OpenAPI 双向一致的测试）。
+- `api/openapi.yaml`：登记 6 个 operation 和对应 schema（上游有路由与 OpenAPI 双向一致的测试）。
 - `internal/server/openapi_response_contract_test.go`：成功契约场景表加一行。
 
 上游 v1.0.14 没有按账号节流器（main 上后来才有 `pacer.go`），所以本分支在适配器里自带一个；rebase 到有节流器的上游版本时可以换成上游的。
@@ -186,3 +206,4 @@ ret SUCCESS 但 `data.success=false` 算 `downshelf_failed`。成功或 `already
 4. 下架：已下架、不存在时闲鱼实际返回的 ret 文案（目前按关键字识别）。
 5. 在售列表：`groupId=58877261` 是否对所有账号有效（上游写死该值）；`itemStatus` 的取值。
 6. 风控、Session 失效在这些接口上的实际 ret。
+7. 擦亮：商品已下架/已售出时闲鱼实际返回的 ret（目前落到 `polish_failed`，原文在 message 里）。

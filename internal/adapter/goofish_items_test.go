@@ -16,6 +16,9 @@ type goofishClientStub struct {
 	mtop.Client
 	publishErr   error
 	downshelfErr error
+	polishErr    error
+	polishedOnce bool
+	polishPaced  bool
 	sawCookies   string
 }
 
@@ -38,6 +41,12 @@ func (c *goofishClientStub) GoofishEditItem(_ context.Context, _ string, req mto
 
 func (c *goofishClientStub) GoofishDownshelf(context.Context, string, string, mtop.GoofishPaceFunc) error {
 	return c.downshelfErr
+}
+
+func (c *goofishClientStub) GoofishPolish(_ context.Context, cookies, _ string, pace mtop.GoofishPaceFunc) (bool, error) {
+	c.sawCookies = cookies
+	c.polishPaced = pace != nil && pace(context.Background()) == nil
+	return c.polishedOnce, c.polishErr
 }
 
 func (c *goofishClientStub) GoofishOnSalePage(context.Context, string, int, mtop.GoofishPaceFunc) (*mtop.GoofishOnSalePage, error) {
@@ -173,5 +182,47 @@ func TestGoofishPacerSpacesSameAccount(t *testing.T) {
 	cancel()
 	if err := pacer.forAccount("a")(cancelled); err == nil {
 		t.Fatal("取消的上下文应返回错误")
+	}
+}
+
+func TestGoofishItemsPortPolish(t *testing.T) {
+	client := &goofishClientStub{}
+	port, cleanup := newGoofishTestPort(t, client)
+	defer cleanup()
+	ctx := context.Background()
+	result, err := port.Polish(ctx, 1, "cid", "777")
+	if err != nil || result.ItemID != "777" || result.AlreadyPolished || len(result.Warnings) != 0 {
+		t.Fatalf("polish = %+v err=%v", result, err)
+	}
+	if client.sawCookies == "" || !client.polishPaced {
+		t.Fatalf("没有把账号 Cookie 和节流器交给 MTOP: cookies=%q paced=%v", client.sawCookies, client.polishPaced)
+	}
+	client.polishedOnce = true
+	result, err = port.Polish(ctx, 1, "cid", "777")
+	if err != nil || !result.AlreadyPolished {
+		t.Fatalf("already polished = %+v err=%v", result, err)
+	}
+	if _, getErr := port.publish.store.Items.GetByCookieItem(ctx, "cid", "777"); getErr == nil {
+		t.Fatal("擦亮不应写 item_info")
+	}
+
+	client.polishedOnce = false
+	cases := map[mtop.GoofishErrorKind]goofishapp.ErrorKind{
+		mtop.GoofishErrNotFound:       goofishapp.KindNotFound,
+		mtop.GoofishErrSessionExpired: goofishapp.KindAccountOffline,
+		mtop.GoofishErrRisk:           goofishapp.KindRisk,
+		mtop.GoofishErrRejected:       goofishapp.KindRejected,
+		mtop.GoofishErrUncertain:      goofishapp.KindUncertain,
+	}
+	for from, want := range cases {
+		client.polishErr = &mtop.GoofishError{Kind: from, Message: "原文"}
+		_, err := port.Polish(ctx, 1, "cid", "777")
+		var appErr *goofishapp.Error
+		if !errors.As(err, &appErr) || appErr.Kind != want || appErr.Op != "polish" || appErr.Message != "原文" {
+			t.Fatalf("%s → %#v", from, err)
+		}
+	}
+	if _, err := port.Polish(ctx, 99, "cid", "777"); err == nil {
+		t.Fatal("别人的账号应该失败")
 	}
 }

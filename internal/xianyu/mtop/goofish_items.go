@@ -7,6 +7,7 @@ package mtop
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -19,10 +20,13 @@ const (
 	GoofishEditAPI       = "mtop.idle.pc.idleitem.edit"
 	GoofishPublishAPI    = "mtop.idle.pc.idleitem.publish"
 	GoofishDownshelfAPI  = "mtop.taobao.idle.item.downshelf"
-	GoofishItemListAPI   = "mtop.idle.web.xyh.item.list"
-	goofishH5Base        = "https://h5api.m.goofish.com/h5/"
-	goofishSourceID      = "pcMainPublish"
-	goofishMaxImages     = 9
+	GoofishPolishAPI     = "mtop.taobao.idle.item.polish"
+	// GoofishPolishBackupAPI 是擦亮主接口失败时的备用接口（与上游 PolishItem 相同）。
+	GoofishPolishBackupAPI = "mtop.idle.item.polish"
+	GoofishItemListAPI     = "mtop.idle.web.xyh.item.list"
+	goofishH5Base          = "https://h5api.m.goofish.com/h5/"
+	goofishSourceID        = "pcMainPublish"
+	goofishMaxImages       = 9
 )
 
 // GoofishErrorKind 是货源台接口的失败分类；HTTP 层据此决定状态码和 code 后缀。
@@ -153,11 +157,13 @@ type goofishAPI struct {
 }
 
 var (
-	goofishEditDetailSpec = goofishAPI{api: GoofishEditDetailAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.item.0.0", stage: "edit_detail"}
-	goofishEditSpec       = goofishAPI{api: GoofishEditAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.item.0.0", stage: "edit", write: true}
-	goofishPublishSpec    = goofishAPI{api: GoofishPublishAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.home.sidebar.1.46413da6EPl7v5", stage: "publish", write: true}
-	goofishDownshelfSpec  = goofishAPI{api: GoofishDownshelfAPI, version: "2.0", spmCnt: "a21ybx.item.0.0", spmPre: "a21ybx.personal.feeds.1.0", stage: "downshelf", write: true}
-	goofishItemListSpec   = goofishAPI{api: GoofishItemListAPI, version: "1.0", spmCnt: "a21ybx.personal.0.0", spmPre: "a21ybx.home.sidebar.1.0", stage: "item_list"}
+	goofishEditDetailSpec   = goofishAPI{api: GoofishEditDetailAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.item.0.0", stage: "edit_detail"}
+	goofishEditSpec         = goofishAPI{api: GoofishEditAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.item.0.0", stage: "edit", write: true}
+	goofishPublishSpec      = goofishAPI{api: GoofishPublishAPI, version: "1.0", spmCnt: "a21ybx.publish.0.0", spmPre: "a21ybx.home.sidebar.1.46413da6EPl7v5", stage: "publish", write: true}
+	goofishDownshelfSpec    = goofishAPI{api: GoofishDownshelfAPI, version: "2.0", spmCnt: "a21ybx.item.0.0", spmPre: "a21ybx.personal.feeds.1.0", stage: "downshelf", write: true}
+	goofishPolishSpec       = goofishAPI{api: GoofishPolishAPI, version: "2.0", spmCnt: "a21ybx.item.0.0", spmPre: "a21ybx.personal.feeds.1.0", stage: "polish", write: true}
+	goofishPolishBackupSpec = goofishAPI{api: GoofishPolishBackupAPI, version: "1.0", spmCnt: "a21ybx.item.0.0", spmPre: "a21ybx.personal.feeds.1.0", stage: "polish", write: true}
+	goofishItemListSpec     = goofishAPI{api: GoofishItemListAPI, version: "1.0", spmCnt: "a21ybx.personal.0.0", spmPre: "a21ybx.home.sidebar.1.0", stage: "item_list"}
 )
 
 // GoofishEditDetail 读取 mtop.idle.pc.idleitem.editDetail 1.0 的 data。
@@ -306,6 +312,75 @@ func (c *ClientImpl) GoofishDownshelf(ctx context.Context, cookiesStr, itemID st
 		}
 	}
 	return nil
+}
+
+// GoofishPolish 擦亮一件商品：先调 mtop.taobao.idle.item.polish 2.0，失败（风控、登录失效、参数错误除外）
+// 再调备用 mtop.idle.item.polish 1.0，与上游 PolishItem 相同。返回 alreadyPolished=true 表示闲鱼说今天已经擦亮过，
+// 按成功处理。擦亮是幂等的，但结果分类仍与下架一致：主接口结果不明时，备用接口除「不存在」外的失败都算 uncertain。
+func (c *ClientImpl) GoofishPolish(ctx context.Context, cookiesStr, itemID string, pace GoofishPaceFunc) (bool, error) {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return false, goofishInvalid("polish", "item_id 不能为空")
+	}
+	primaryErr := c.goofishPolishOnce(ctx, cookiesStr, pace, goofishPolishSpec, itemID)
+	if primaryErr == nil {
+		return false, nil
+	}
+	if duplicatePolishError(primaryErr) {
+		return true, nil
+	}
+	primaryKind := goofishErrKind(primaryErr)
+	switch primaryKind {
+	case GoofishErrRisk, GoofishErrSessionExpired, GoofishErrInvalid:
+		return false, primaryErr
+	}
+	backupErr := c.goofishPolishOnce(ctx, cookiesStr, pace, goofishPolishBackupSpec, itemID)
+	if backupErr == nil {
+		return false, nil
+	}
+	if duplicatePolishError(backupErr) {
+		return true, nil
+	}
+	backupKind := goofishErrKind(backupErr)
+	kind := backupKind
+	switch {
+	case backupKind == GoofishErrNotFound:
+	case primaryKind == GoofishErrUncertain:
+		// 主接口可能已经擦亮，备用接口的失败不能证明没做成。
+		kind = GoofishErrUncertain
+	case backupKind == GoofishErrRejected && primaryKind == GoofishErrNotFound:
+		kind = GoofishErrNotFound
+	}
+	combined := &GoofishError{Kind: kind, Stage: "polish", Message: "擦亮主接口失败：" + primaryErr.Error() + "；备用接口失败：" + backupErr.Error(), Err: backupErr}
+	var gerr *GoofishError
+	if errors.As(backupErr, &gerr) {
+		combined.Ret = gerr.Ret
+	}
+	return false, combined
+}
+
+// goofishPolishOnce 调一个擦亮接口；ret SUCCESS 但 data.success=false 算闲鱼拒绝。
+func (c *ClientImpl) goofishPolishOnce(ctx context.Context, cookiesStr string, pace GoofishPaceFunc, spec goofishAPI, itemID string) error {
+	decoded, _, err := c.goofishCall(ctx, cookiesStr, pace, spec, map[string]any{"itemId": itemID})
+	if err != nil {
+		return goofishNotFoundFromRejection(err)
+	}
+	if data := mapFromAny(decoded["data"]); data != nil {
+		if raw, ok := data["success"]; ok && !goofishBool(raw) {
+			message := firstNonEmpty(mtopString(data["errorMsg"]), mtopString(data["msg"]), mtopString(data["errorMessage"]), mtopString(data["errorCode"]), "闲鱼返回 success=false")
+			return goofishNotFoundFromRejection(&GoofishError{Kind: GoofishErrRejected, Stage: "polish", Message: "闲鱼拒绝擦亮：" + sanitizeMTopText(message), Ret: []string{sanitizeMTopText(message)}})
+		}
+	}
+	return nil
+}
+
+// goofishErrKind 返回分类错误的 Kind；未分类错误按 rejected。
+func goofishErrKind(err error) GoofishErrorKind {
+	var gerr *GoofishError
+	if errors.As(err, &gerr) {
+		return gerr.Kind
+	}
+	return GoofishErrRejected
 }
 
 // GoofishOnSalePage 读取一页在售分组（与上游商品同步使用相同的分组参数），不写本地库。

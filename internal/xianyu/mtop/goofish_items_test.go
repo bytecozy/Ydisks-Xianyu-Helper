@@ -524,3 +524,66 @@ func TestGoofishSeparateTitleKeepsDescBodyOnly(t *testing.T) {
 		t.Fatalf("text = %#v", text)
 	}
 }
+
+func TestGoofishPolishClassification(t *testing.T) {
+	cases := []struct {
+		name        string
+		primary     string
+		backup      string
+		wantAlready bool
+		want        GoofishErrorKind
+		wantPrimary int
+		wantBackup  int
+	}{
+		{"主接口成功", `{"ret":["SUCCESS::调用成功"],"data":{}}`, "", false, "", 1, 0},
+		{"今天已擦亮", `{"ret":["FAIL_BIZ_IDLEITEM_POLISH_AGAIN::一天只能擦亮一次"]}`, "", true, "", 1, 0},
+		{"data.success=false 已擦亮", `{"ret":["SUCCESS::调用成功"],"data":{"success":false,"errorMsg":"宝贝已经擦亮过了"}}`, "", true, "", 1, 0},
+		{"主接口拒绝备用成功", `{"ret":["FAIL_SYS_API_NOT_FOUNDED::API不存在"]}`, `{"ret":["SUCCESS::调用成功"],"data":{}}`, false, "", 1, 1},
+		{"备用说已擦亮", `{"ret":["FAIL_BIZ_X::失败"]}`, `{"ret":["FAIL_BIZ_POLISH_DUPLICATE::已经擦亮"]}`, true, "", 1, 1},
+		{"商品不在售", `{"ret":["FAIL_BIZ_ITEM_STATUS_ERROR::宝贝已下架，不能擦亮"]}`, `{"ret":["FAIL_BIZ_ITEM_STATUS_ERROR::宝贝已下架，不能擦亮"]}`, false, GoofishErrRejected, 1, 1},
+		{"商品不存在", `{"ret":["FAIL_BIZ_ITEM_NOT_EXIST::宝贝不存在"]}`, `{"ret":["FAIL_BIZ_ITEM_NOT_EXIST::宝贝不存在"]}`, false, GoofishErrNotFound, 1, 1},
+		{"主接口不明备用拒绝", `{"ret":["FAIL_SYS_SERVICE_TIMEOUT::超时"]}`, `{"ret":["FAIL_BIZ_X::失败"]}`, false, GoofishErrUncertain, 1, 1},
+		{"两个都不明", `{"ret":["FAIL_SYS_SERVICE_TIMEOUT::超时"]}`, `{"ret":["FAIL_SYS_SERVICE_TIMEOUT::超时"]}`, false, GoofishErrUncertain, 1, 1},
+		{"风控不走备用", `{"ret":["RGV587_ERROR::SM::哎哟喂,被挤爆啦"]}`, "", false, GoofishErrRisk, 1, 0},
+		{"登录失效不走备用", `{"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"]}`, "", false, GoofishErrSessionExpired, 1, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := newGoofishStub()
+			stub.handlers[GoofishPolishAPI] = func(_ int, _ map[string]any, req *http.Request) (*http.Response, error) {
+				return goofishJSON(req, 200, tc.primary), nil
+			}
+			stub.handlers[GoofishPolishBackupAPI] = func(_ int, _ map[string]any, req *http.Request) (*http.Response, error) {
+				return goofishJSON(req, 200, tc.backup), nil
+			}
+			already, err := goofishClient(stub).GoofishPolish(context.Background(), goofishTestCookies, "42", nil)
+			if tc.want == "" {
+				if err != nil || already != tc.wantAlready {
+					t.Fatalf("already=%v err=%v", already, err)
+				}
+			} else if got := goofishKind(t, err); got != tc.want {
+				t.Fatalf("kind = %s want %s (%v)", got, tc.want, err)
+			}
+			if stub.counts[GoofishPolishAPI] != tc.wantPrimary || stub.counts[GoofishPolishBackupAPI] != tc.wantBackup {
+				t.Fatalf("调用次数 primary=%d backup=%d", stub.counts[GoofishPolishAPI], stub.counts[GoofishPolishBackupAPI])
+			}
+			if got := stub.last(GoofishPolishAPI); got["itemId"] != "42" || len(got) != 1 {
+				t.Fatalf("polish data = %#v", got)
+			}
+		})
+	}
+}
+
+func TestGoofishPolishPaceErrorStopsBeforeSending(t *testing.T) {
+	stub := newGoofishStub()
+	_, err := goofishClient(stub).GoofishPolish(context.Background(), goofishTestCookies, "42", func(context.Context) error { return context.DeadlineExceeded })
+	if got := goofishKind(t, err); got != GoofishErrRejected {
+		t.Fatalf("kind = %s", got)
+	}
+	if len(stub.calls) != 0 {
+		t.Fatal("节流失败时不能发请求")
+	}
+	if _, err := goofishClient(stub).GoofishPolish(context.Background(), goofishTestCookies, " ", nil); goofishKind(t, err) != GoofishErrInvalid {
+		t.Fatalf("空 item_id err = %v", err)
+	}
+}

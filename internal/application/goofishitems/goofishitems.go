@@ -28,7 +28,7 @@ const (
 
 // Error 是带操作名的分类错误。
 type Error struct {
-	// Op 是操作：publish、edit、downshelf、on_sale、edit_detail。
+	// Op 是操作：publish、edit、downshelf、polish、on_sale、edit_detail。
 	Op string
 	// Kind 是失败分类。
 	Kind ErrorKind
@@ -90,6 +90,13 @@ type WriteResult struct {
 	Warnings []string
 }
 
+// PolishResult 是擦亮成功后的结果。AlreadyPolished 表示闲鱼说今天已经擦亮过（按成功处理）。
+type PolishResult struct {
+	ItemID          string
+	AlreadyPolished bool
+	Warnings        []string
+}
+
 // OnSaleItem 是在售列表的一行。
 type OnSaleItem struct {
 	ItemID string `json:"item_id"`
@@ -110,5 +117,6 @@ type Port interface {
 	Publish(ctx context.Context, input PublishInput) (WriteResult, error)
 	Edit(ctx context.Context, input EditInput) (WriteResult, error)
 	Downshelf(ctx context.Context, userID int64, cookieID, itemID string) (WriteResult, error)
+	Polish(ctx context.Context, userID int64, cookieID, itemID string) (PolishResult, error)
 	OnSale(ctx context.Context, userID int64, cookieID string, page int) (OnSalePage, error)
 }

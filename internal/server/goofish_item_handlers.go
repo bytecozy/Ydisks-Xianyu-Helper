@@ -31,6 +31,7 @@ func (s *Server) mountVersionedGoofishItems(r chi.Router) {
 		r.Post("/api/v1/goofish/items/publish", s.goofishPublish)
 		r.Post("/api/v1/goofish/items/{cookie_id}/{item_id}/edit", s.goofishEdit)
 		r.Post("/api/v1/goofish/items/{cookie_id}/{item_id}/downshelf", s.goofishDownshelf)
+		r.Post("/api/v1/goofish/items/{cookie_id}/{item_id}/polish", s.goofishPolish)
 	})
 }
 
@@ -225,7 +226,30 @@ func (s *Server) goofishDownshelf(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, goofishWriteResponse{Success: true, ItemID: result.ItemID, Status: "off_shelf", Warnings: result.Warnings})
 }
 
-// goofishWriteResponse 是发布/编辑/下架的成功响应；本地同步问题放在 warnings，不影响成功语义。
+// goofishPolish 擦亮商品；今天已经擦亮过也算成功（status=already_polished）。
+func (s *Server) goofishPolish(w http.ResponseWriter, r *http.Request) {
+	port, ok := s.goofishPort(w)
+	if !ok {
+		return
+	}
+	cookieID, itemID := chi.URLParam(r, "cookie_id"), strings.TrimSpace(chi.URLParam(r, "item_id"))
+	userID, ok := s.goofishOwnedAccount(w, r, cookieID)
+	if !ok {
+		return
+	}
+	result, err := port.Polish(r.Context(), userID, cookieID, itemID)
+	if err != nil {
+		s.writeGoofishError(w, "polish", err)
+		return
+	}
+	status := "polished"
+	if result.AlreadyPolished {
+		status = "already_polished"
+	}
+	writeJSON(w, http.StatusOK, goofishWriteResponse{Success: true, ItemID: result.ItemID, Status: status, Warnings: result.Warnings})
+}
+
+// goofishWriteResponse 是发布/编辑/下架/擦亮的成功响应；本地同步问题放在 warnings，不影响成功语义。
 type goofishWriteResponse struct {
 	// Success 恒为 true。
 	Success bool `json:"success"`
@@ -233,7 +257,7 @@ type goofishWriteResponse struct {
 	ItemID string `json:"item_id"`
 	// ItemURL 是商品网页地址（发布时返回）。
 	ItemURL string `json:"item_url,omitempty"`
-	// Status 是下架后的状态 off_shelf。
+	// Status 是下架后的 off_shelf，或擦亮后的 polished / already_polished。
 	Status string `json:"status,omitempty"`
 	// Warnings 是闲鱼已成功但本地同步失败的说明。
 	Warnings []string `json:"warnings,omitempty"`

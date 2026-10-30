@@ -7685,6 +7685,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/goofish/items/{cookie_id}/{item_id}/polish":
+    post:
+      operationId: postApiV1GoofishItemsBycookie_idByitem_idPolish
+      summary: 货源台：擦亮商品，今天已擦亮也算成功（goofish fork）
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+          - name: item_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoofishWriteResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     cookieAuth:
@@ -7722,7 +7793,7 @@ components:
         success: {type: boolean}
         item_id: {type: string}
         item_url: {type: string}
-        status: {type: string}
+        status: {type: string, description: 下架为 off_shelf；擦亮为 polished 或 already_polished}
         warnings: {type: array, items: {type: string}}
     GoofishEditDetailResponse:
       type: object

@@ -26,6 +26,7 @@ type goofishItemClient interface {
 	GoofishPublishFromTemplate(ctx context.Context, cookiesStr string, req mtop.GoofishPublishRequest) (*mtop.GoofishWriteResult, error)
 	GoofishEditItem(ctx context.Context, cookiesStr string, req mtop.GoofishEditRequest) (*mtop.GoofishWriteResult, error)
 	GoofishDownshelf(ctx context.Context, cookiesStr, itemID string, pace mtop.GoofishPaceFunc) error
+	GoofishPolish(ctx context.Context, cookiesStr, itemID string, pace mtop.GoofishPaceFunc) (bool, error)
 	GoofishOnSalePage(ctx context.Context, cookiesStr string, pageNumber int, pace mtop.GoofishPaceFunc) (*mtop.GoofishOnSalePage, error)
 }
 
@@ -263,6 +264,24 @@ func (g *GoofishItemsPort) Downshelf(ctx context.Context, userID int64, cookieID
 		warnings = append(warnings, "本地 item_info 状态没有更新："+markErr.Error())
 	}
 	return goofishapp.WriteResult{ItemID: itemID, Warnings: warnings}, err
+}
+
+// Polish 擦亮商品（今天已擦亮也算成功），不写本地库。
+func (g *GoofishItemsPort) Polish(ctx context.Context, userID int64, cookieID, itemID string) (goofishapp.PolishResult, error) {
+	client, err := g.client()
+	if err != nil {
+		return goofishapp.PolishResult{}, &goofishapp.Error{Op: "polish", Kind: goofishapp.KindRejected, Message: err.Error()}
+	}
+	already := false
+	warnings, err := g.withAccount(ctx, "polish", userID, cookieID, func(ctx context.Context, cookies string, pace mtop.GoofishPaceFunc) error {
+		var callErr error
+		already, callErr = client.GoofishPolish(ctx, cookies, itemID, pace)
+		return callErr
+	})
+	if err != nil {
+		return goofishapp.PolishResult{}, err
+	}
+	return goofishapp.PolishResult{ItemID: itemID, AlreadyPolished: already, Warnings: warnings}, nil
 }
 
 // OnSale 读取一页在售商品，不写本地库。
