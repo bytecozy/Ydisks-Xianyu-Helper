@@ -5256,6 +5256,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: 单订单刷新超过总时限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/orders/{order_id}/adjust-price":
     post:
       operationId: postApiV1OrdersByorder_idAdjustPrice
