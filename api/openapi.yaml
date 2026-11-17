@@ -5340,6 +5340,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/orders/{order_id}/close":
+    post:
+      operationId: postApiV1OrdersByorder_idClose
+      summary: 卖家关闭待付款或已付款待发货订单（货源台专用，逐单，只请求平台一次；已付款的原路退款）
+      parameters:
+          - name: order_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 闲鱼已关闭订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCloseResponse'
+        '400':
+          description: 缺少订单ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权操作此订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: order_not_closable：本地订单不是待付款或待发货，未请求平台
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: order_close_failed：闲鱼明确未关闭；order_close_uncertain：结果未知，不得自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 关闭订单能力未装配
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/orders/import":
     post:
       operationId: postApiV1OrdersImport
@@ -9380,6 +9446,17 @@ components:
         spec_value: {type: string}
         order_status: {type: string}
         amount: {type: string}
+    OrderCloseResponse:
+      type: object
+      required: [order_id, status, message]
+      properties:
+        order_id:
+          type: string
+        status:
+          type: string
+          enum: [succeeded]
+        message:
+          type: string
     OrderAdjustPriceResponse:
       type: object
       required: [order_id, status, price_cents, message]

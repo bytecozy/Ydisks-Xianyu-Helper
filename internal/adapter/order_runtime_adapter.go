@@ -103,6 +103,14 @@ func (adapter OrderRuntimeAdapter) AdjustOrderPrice(ctx context.Context, cookieI
 	return adapter.runtime.AdjustOrderPrice(ctx, cookieID, orderID, priceCents, userID)
 }
 
+// CloseOrderBySeller 执行平台卖家关闭订单并返回应用层结果。
+func (adapter OrderRuntimeAdapter) CloseOrderBySeller(ctx context.Context, cookieID, orderID string, userID int64) orderapp.PriceAdjustment {
+	if adapter.runtime == nil {
+		return orderapp.PriceAdjustment{Err: errors.New("订单运行时未初始化")}
+	}
+	return adapter.runtime.CloseOrderBySeller(ctx, cookieID, orderID, userID)
+}
+
 // UpdateRunningCookie 同步运行时账号 Cookie。
 func (adapter OrderRuntimeAdapter) UpdateRunningCookie(ctx context.Context, cookieID, value string) {
 	if adapter.runtime != nil {
