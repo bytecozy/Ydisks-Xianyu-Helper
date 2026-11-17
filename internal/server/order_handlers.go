@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -115,14 +117,24 @@ func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) 
 	return missing
 }
 
+// singleOrderRefreshTimeout 是单订单刷新请求的总时限，比平台详情请求的 1 分钟多出等锁和写回的余量。
+const singleOrderRefreshTimeout = 90 * time.Second
+
 // refreshSingleOrder 处理仍需访问订单详情接口的单订单刷新；批量刷新只返回已售列表同步统计。
 func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 	// orderID 是需要通过详情接口刷新的订单标识。
 	orderID := chi.URLParam(r, "order_id")
 	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
+	// ctx 约束单订单刷新的平台详情（含 Token 重签）、数据库写回和运行时同步；不创建后台任务。
+	ctx, cancel := context.WithTimeout(r.Context(), singleOrderRefreshTimeout)
+	defer cancel()
 	// result、err 用于本次流程后续判断的result、err
-	result, err := s.orders().RefreshSingle(r.Context(), sess.UserID, orderID)
+	result, err := s.orders().RefreshSingle(ctx, sess.UserID, orderID)
+	if errors.Is(err, context.DeadlineExceeded) {
+		writeErrDetails(w, http.StatusGatewayTimeout, "order_refresh_timeout", "订单刷新超时："+err.Error(), "", nil)
+		return
+	}
 	if errors.Is(err, orderapp.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "订单不存在")
 		return

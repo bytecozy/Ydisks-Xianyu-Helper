@@ -299,7 +299,7 @@ func (s *RefreshService) RefreshSingle(ctx context.Context, userID int64, orderI
 	}
 	// cookieID 保存订单所属账号标识。
 	cookieID := order.CookieID
-	// unlock 保存凭证锁释放函数。
+	// unlock 保存凭证锁释放函数；凭证锁只覆盖数据库快照读取和响应提交。
 	unlock := s.repository.LockCredentials(cookieID)
 	// locked 表示当前函数是否仍持有凭证锁。
 	locked := true
@@ -327,6 +327,8 @@ func (s *RefreshService) RefreshSingle(ctx context.Context, userID int64, orderI
 	latestAfterFetch, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
 	// credentialChanged 表示外部请求期间凭证快照是否发生变化。
 	credentialChanged := reloadErr != nil || latestAfterFetch == nil || latestAfterFetch.UserID != userID || latestAfterFetch.Value != latest.Value || latestAfterFetch.MetadataJSON != latest.MetadataJSON
+	// runtimeCookie 保存已成功落库、需要在释放凭证锁后同步给运行实例的 Cookie。
+	runtimeCookie := ""
 	if !credentialChanged {
 		// value、valueChanged、handled、persistErr 保存 Cookie 会话提交结果。
 		value, valueChanged, handled, persistErr := s.runtime.PersistCookieSession(ctx, latest, fetchResult.CookieUpdate)
@@ -334,18 +336,22 @@ func (s *RefreshService) RefreshSingle(ctx context.Context, userID int64, orderI
 			callErr = errors.Join(callErr, fmt.Errorf("保存订单详情响应 Cookie Jar: %w", persistErr))
 		} else if handled && valueChanged {
 			if value != "" {
-				s.runtime.UpdateRunningCookie(ctx, cookieID, value)
+				runtimeCookie = value
 			}
 		} else if !handled && callErr == nil && fetchResult.Detail != nil && fetchResult.Detail.UpdatedCookies != "" && fetchResult.Detail.UpdatedCookies != latest.Value {
 			// metadata 保存不含快照的 Cookie 元数据。
 			metadata := latest.MetadataJSON
 			// saveErr 保存扁平 Cookie 写入错误。
 			if saveErr := s.repository.UpdateRenewalCookie(ctx, cookieID, fetchResult.Detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr == nil {
-				s.runtime.UpdateRunningCookie(ctx, cookieID, fetchResult.Detail.UpdatedCookies)
+				runtimeCookie = fetchResult.Detail.UpdatedCookies
 			}
 		}
 	}
 	unlockAfterFetch()
+	// 运行时更新会再次获取同一账号凭证锁，必须在数据库提交临界区结束后调用。
+	if runtimeCookie != "" {
+		s.runtime.UpdateRunningCookie(ctx, cookieID, runtimeCookie)
+	}
 	if credentialChanged {
 		return SingleRefreshResult{}, ErrRefreshCredentialChanged
 	}
