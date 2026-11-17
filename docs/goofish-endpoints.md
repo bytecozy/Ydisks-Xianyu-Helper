@@ -61,6 +61,22 @@ multipart 字段都可选，至少给一个：`title`、`description`、`price`�
 `200 {"success":true,"items":[{"item_id","title","price","status"}],"has_more":bool,"page":N}`。
 `status` 为 `on_sale`（列表卡片 `itemStatus=0`），其他值原样带出为 `item_status_<n>`。
 
+### POST /api/v1/orders/{order_id}/adjust-price（2026-11-17 加）
+
+把一笔**待付款**订单改成新总价，给货源台的 Grok Bot 议价用（买家拍下后不用重拍）。请求体 `{"price_cents": 14900}`（改价后的订单总价，分）。逐单，只请求闲鱼一次，不自动重试。
+
+- 调用：`mtop.taobao.idle.trade.user.adjust.price` 1.0，data `{"modifyFee": 分, "newTransportFee": "0", "orderId": …}`。这是上游原有的 `MTOPClient.AdjustOrderPriceContext`（上游自动化「改价」动作和 AI 议价自动改价用的同一个调用），token 过期时重签最多 4 次。
+- 本地订单必须是 `processing`（已拍下待付款），否则返回 409 `order_not_pending_payment`，不请求闲鱼。
+- 200 `{"order_id", "status": "succeeded", "price_cents", "message"}`：闲鱼确认已改；本地 `orders.amount` 写成新价。
+- 502 `order_price_failed`：闲鱼明确没改（业务或系统错误、会话失效，原文在 message 里），例如订单已付款或已关闭。502 `order_price_uncertain`：连接中断等，不知道闲鱼改没改，不要重复改价，到闲鱼核对。
+- 400 参数错误；403 账号不属于当前用户；404 订单不存在；503 能力未装配。
+
+代码：`internal/application/orders/adjust_price_service.go`（挂在 `ManualShipService` 上，运行时可选实现 `OrderPriceAdjuster`）、`internal/adapter/order_runtime.go` `AdjustOrderPrice`（凭证锁、Cookie 写回同确认发货）、`internal/server/order_price_handlers.go`。
+
+闲鱼卖家端可以关闭未付款订单，但 Ydisks（上游和本 fork）没有关闭订单的调用，所以不做关闭。
+
+同一次改动里，订单列表和详情（`orderDTO`）加上了 `chat_id`：买家没聊天直接拍下时，货源台靠它找到会话。
+
 ## 错误约定
 
 返回体统一 `{"code","message"}`（可能附带 `request_id`）。货源台按下表判断「肯定没做成」还是「不确定」：
@@ -192,7 +208,10 @@ ret SUCCESS 但 `data.success=false` 算 `downshelf_failed`。成功或 `already
 - `internal/server/versioned_session_routes.go`：挂载 `mountVersionedGoofishItems`。
 - `internal/composition/application_services.go`、`application_services_items.go`、`runtime/server_dependencies.go`：把 `GoofishItemsPort` 传到 Server。
 - `api/openapi.yaml`：登记 6 个 operation 和对应 schema（上游有路由与 OpenAPI 双向一致的测试）。
-- `internal/server/openapi_response_contract_test.go`：成功契约场景表加一行。
+- `internal/server/openapi_response_contract_test.go`：成功契约场景表加一行（擦亮一行，订单改价一行）。
+- `internal/server/order_service.go`、`success_contract.go`：订单改价的可选端口；`orderDTO` 加 `chat_id`。
+- `internal/adapter/order_runtime.go`、`order_runtime_adapter.go`、`internal/composition/runtime/server_dependencies.go`：订单改价的运行时实现和转发。
+- `internal/server/versioned_order_routes.go`：挂 `adjust-price`。
 
 上游 v1.0.14 没有按账号节流器（main 上后来才有 `pacer.go`），所以本分支在适配器里自带一个；rebase 到有节流器的上游版本时可以换成上游的。
 

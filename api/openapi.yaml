@@ -5256,6 +5256,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/orders/{order_id}/adjust-price":
+    post:
+      operationId: postApiV1OrdersByorder_idAdjustPrice
+      summary: 待付款订单改价（货源台专用，逐单，只请求平台一次）
+      parameters:
+          - name: order_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [price_cents]
+              properties:
+                price_cents:
+                  type: integer
+                  minimum: 1
+                  description: 改价后的订单总价（分）
+      responses:
+        '200':
+          description: 闲鱼已确认改价
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAdjustPriceResponse'
+        '400':
+          description: price_cents 不是正整数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权操作此订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: order_not_pending_payment：本地订单不是待付款，未请求平台
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: order_price_failed：闲鱼明确未改价；order_price_uncertain：结果未知，不得自动重试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 改价能力未装配
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/orders/import":
     post:
       operationId: postApiV1OrdersImport
@@ -9296,6 +9374,19 @@ components:
         spec_value: {type: string}
         order_status: {type: string}
         amount: {type: string}
+    OrderAdjustPriceResponse:
+      type: object
+      required: [order_id, status, price_cents, message]
+      properties:
+        order_id:
+          type: string
+        status:
+          type: string
+          enum: [succeeded]
+        price_cents:
+          type: integer
+        message:
+          type: string
     OrderSingleRefreshResponse:
       type: object
       required: [success, message, order]

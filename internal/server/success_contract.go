@@ -256,6 +256,8 @@ type orderDTO struct {
 	ItemImage string `json:"item_image"`
 	// BuyerID 是买家平台标识。
 	BuyerID string `json:"buyer_id"`
+	// ChatID 是订单对应的闲鱼会话标识（买家没聊天直接拍下时，货源台靠它找到会话）。
+	ChatID string `json:"chat_id"`
 	// SpecName 是商品规格名称。
 	SpecName string `json:"spec_name"`
 	// SpecValue 是商品规格值。

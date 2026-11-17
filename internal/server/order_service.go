@@ -204,7 +204,7 @@ func orderDTOFromOrder(order *orderapp.Order, item *orderapp.ItemInfo) orderDTO 
 	status := orderapp.NormalizeOrderStatus(order.OrderStatus)
 	return orderDTO{
 		OrderID: order.OrderID, ItemID: order.ItemID, ItemTitle: itemTitle, ItemImage: itemImage,
-		BuyerID: order.BuyerID, SpecName: order.SpecName, SpecValue: order.SpecValue,
+		BuyerID: order.BuyerID, ChatID: order.ChatID, SpecName: order.SpecName, SpecValue: order.SpecValue,
 		Quantity: order.Quantity, Amount: order.Amount, OrderStatus: status, Status: status,
 		CookieID: order.CookieID, IsBargain: order.IsBargain, SystemShipped: order.SystemShipped,
 		ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
@@ -397,6 +397,21 @@ func orderImportResultFromApplication(result orderapp.ImportResult) orderImportR
 		results = append(results, orderImportResultDTO{OrderID: item.OrderID, Success: item.Success, Message: item.Message})
 	}
 	return orderImportResult{Total: result.Total, SuccessCount: result.SuccessCount, FailedCount: result.FailedCount, Results: results}
+}
+
+// orderPriceAdjustPort 是订单用例可选实现的待付款订单改价能力；旧装配或测试替身未实现时接口返回 503。
+type orderPriceAdjustPort interface {
+	AdjustOrderPrice(context.Context, orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error)
+}
+
+// AdjustPrice 把一笔待付款订单改成新总价（货源台专用）。
+func (a *orderHTTPAdapter) AdjustPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
+	// adjuster 是可选的改价用例。
+	adjuster, ok := a.services.(orderPriceAdjustPort)
+	if !ok {
+		return orderapp.AdjustPriceResult{}, orderapp.ErrPriceAdjustUnavailable
+	}
+	return adjuster.AdjustOrderPrice(ctx, request)
 }
 
 // manualShipRequest 描述批量手动发货请求。

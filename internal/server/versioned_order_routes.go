@@ -19,5 +19,6 @@ func (s *Server) mountVersionedOrders(r chi.Router) {
 		r.Post("/api/v1/orders/manual-ship", s.manualShipOrders)
 		r.Post("/api/v1/orders/import", s.importOrders)
 		r.Post("/api/v1/orders/{order_id}/refresh", s.refreshSingleOrder)
+		r.Post("/api/v1/orders/{order_id}/adjust-price", s.adjustOrderPrice)
 	})
 }

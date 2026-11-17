@@ -204,6 +204,63 @@ func (r *OrderRuntime) consignWithCurrentCookie(ctx context.Context, cookieID, o
 	return success, messages, "", false, nil
 }
 
+// AdjustOrderPrice 使用当前账号凭证调用平台待付款订单改价（mtop.taobao.idle.trade.user.adjust.price），并保存响应 Cookie。
+// 平台明确的业务或系统错误、会话失效视为未改价；传输中断等无法判断平台是否已执行的错误视为结果不确定。
+func (r *OrderRuntime) AdjustOrderPrice(ctx context.Context, cookieID, orderID string, priceCents int64, userID int64) orderapp.PriceAdjustment {
+	if r == nil || r.store == nil || r.store.Cookies == nil {
+		return orderapp.PriceAdjustment{Err: errors.New("订单凭证存储未初始化")}
+	}
+	if priceCents <= 0 {
+		return orderapp.PriceAdjustment{Err: errors.New("改价金额必须大于 0")}
+	}
+	// unlock 保护当前账号凭证读取；平台改价开始前必须释放账号锁。
+	unlock := r.store.LockAccountCredentials(cookieID)
+	// detail、loadErr 保存按账号读取的平台运行凭证及错误。
+	detail, loadErr := r.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
+	if loadErr != nil {
+		unlock()
+		return orderapp.PriceAdjustment{Err: loadErr}
+	}
+	if detail.UserID != userID {
+		unlock()
+		return orderapp.PriceAdjustment{Err: orderapp.ErrForbidden}
+	}
+	if !hasStoredOrderCredential(detail) {
+		unlock()
+		return orderapp.PriceAdjustment{Err: errors.New("账号 Cookie 为空")}
+	}
+	// requestCtx、session 保存带 Cookie 快照的平台上下文及响应会话。
+	requestCtx, session := withOrderCookieSnapshot(ctx, detail)
+	unlock()
+	// client 保存当前平台调用客户端。
+	client := r.mtopClient()
+	if client == nil {
+		return orderapp.PriceAdjustment{Err: errors.New("MTop 客户端未初始化")}
+	}
+	// success、messages、updatedCookies、callErr 保存平台改价响应。
+	success, messages, updatedCookies, callErr := client.AdjustOrderPriceContext(requestCtx, detail.Value, orderID, priceCents)
+	// value、valueChanged、handled、persistErr 保存响应 Cookie 会话写回结果。
+	value, valueChanged, handled, persistErr := r.persistCurrentOrderCookieSession(ctx, detail, session, updatedCookies, userID)
+	// result 汇总平台结果；Cookie 写回失败不改变平台改价结论。
+	result := orderapp.PriceAdjustment{Success: success, Messages: messages, Err: callErr}
+	if persistErr != nil {
+		result.Err = errors.Join(callErr, fmt.Errorf("保存改价响应 Cookie Jar: %w", persistErr))
+	} else if handled && valueChanged {
+		result.RuntimeCookie, result.RuntimeCookieChanged = value, true
+	}
+	if success || callErr == nil {
+		return result
+	}
+	if mtop.IsSessionExpiredErr(callErr) {
+		return result
+	}
+	if kind, classified := mtop.MTopErrorKindOf(callErr); classified && (kind == mtop.MTopErrorBusiness || kind == mtop.MTopErrorSystem || kind == mtop.MTopErrorTokenExpired) {
+		return result
+	}
+	result.Uncertain = true
+	return result
+}
+
 // UpdateRunningCookie 同步运行时账号 Cookie。
 func (r *OrderRuntime) UpdateRunningCookie(ctx context.Context, cookieID, value string) {
 	if r != nil && r.hooks.UpdateRunningCookie != nil {
