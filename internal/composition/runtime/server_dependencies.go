@@ -170,6 +170,11 @@ func (transport ordersTransport) ManualShip(ctx context.Context, request orderap
 	return transport.services.ManualShip.ManualShip(ctx, request)
 }
 
+// CloseOrder 转发卖家关闭订单用例（货源台专用）。
+func (transport ordersTransport) CloseOrder(ctx context.Context, request orderapp.CloseOrderRequest) (orderapp.AdjustPriceResult, error) {
+	return transport.services.ManualShip.CloseOrder(ctx, request)
+}
+
 // AdjustOrderPrice 转发待付款订单改价用例（货源台专用）。
 func (transport ordersTransport) AdjustOrderPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
 	return transport.services.ManualShip.AdjustPrice(ctx, request)

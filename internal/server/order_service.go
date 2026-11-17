@@ -414,6 +414,20 @@ func (a *orderHTTPAdapter) AdjustPrice(ctx context.Context, request orderapp.Adj
 	return adjuster.AdjustOrderPrice(ctx, request)
 }
 
+// orderClosePort 是订单用例可选实现的卖家关闭订单能力；未实现时接口返回 503。
+type orderClosePort interface {
+	CloseOrder(context.Context, orderapp.CloseOrderRequest) (orderapp.AdjustPriceResult, error)
+}
+
+// CloseOrder 由卖家关闭一笔订单（货源台专用）。
+func (a *orderHTTPAdapter) CloseOrder(ctx context.Context, request orderapp.CloseOrderRequest) (orderapp.AdjustPriceResult, error) {
+	closer, ok := a.services.(orderClosePort)
+	if !ok {
+		return orderapp.AdjustPriceResult{}, orderapp.ErrOrderCloseUnavailable
+	}
+	return closer.CloseOrder(ctx, request)
+}
+
 // manualShipRequest 描述批量手动发货请求。
 type manualShipRequest struct {
 	// UserID 是当前登录用户标识。

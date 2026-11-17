@@ -73,9 +73,22 @@ multipart 字段都可选，至少给一个：`title`、`description`、`price`�
 
 代码：`internal/application/orders/adjust_price_service.go`（挂在 `ManualShipService` 上，运行时可选实现 `OrderPriceAdjuster`）、`internal/adapter/order_runtime.go` `AdjustOrderPrice`（凭证锁、Cookie 写回同确认发货）、`internal/server/order_price_handlers.go`。
 
-闲鱼卖家端可以关闭未付款订单，但 Ydisks（上游和本 fork）没有关闭订单的调用，所以不做关闭。
+关闭订单见下一节。
 
 同一次改动里，订单列表和详情（`orderDTO`）加上了 `chat_id`：买家没聊天直接拍下时，货源台靠它找到会话。
+
+### POST /api/v1/orders/{order_id}/close（2026-11-18 加）
+
+卖家关闭一笔**待付款**（`processing`，关闭交易）或**已付款待发货**（`pending_ship`，关闭后闲鱼把货款原路退给买家）的订单。给货源台 Grok Bot 用，场景是买家换号后关掉原来那笔。无请求体，逐单，只请求闲鱼一次，不自动重试。
+
+- 调用：`mtop.taobao.idle.trade.merchant.close.by.seller` **2.0**，data 为 `{"tid": 订单号, "bizOrderId": 订单号, "closeReason": "其他原因"}`（关闭原因必须是卖家后台的预设文案）。请求头 `Origin: https://seller.goofish.com`、`Referer: https://seller.goofish.com/?site=COMMONPRO`、`idle_site_biz_code: COMMONPRO`。ret 为 SUCCESS 即关闭。token 过期时重签，最多 4 次。
+- 协议来源：开源项目 zhinianboke/xianyu-auto-reply（AGPL）的 `close_order_by_seller`，它在发货前拦截时关闭已付款订单。只取了接口名和参数，代码是照本仓库的 adjust-price 写的。**本仓库还没在真实订单上验证过**，第一次使用就是验证，用之前先拿一笔可以关的订单试一次。
+- 本地订单必须是 `processing` 或 `pending_ship`，否则返回 409 `order_not_closable`，不请求闲鱼。
+- 200 `{"order_id", "status": "succeeded", "message"}`：闲鱼确认已关闭，本地订单记为 `cancelled`。
+- 502 `order_close_failed`：闲鱼明确没关（原文在 message 里）。502 `order_close_uncertain`：不知道关没关，不要重复关，到闲鱼核对。
+- 400 / 403 / 404 / 503 与改价接口相同。
+
+代码：`internal/xianyu/mtop/close_order.go`、`internal/application/orders/close_order_service.go`、`internal/adapter/order_runtime.go` `CloseOrderBySeller`（MTOP 客户端用可选接口判断是否支持）、`internal/server/order_close_handlers.go`。
 
 ## 错误约定
 

@@ -80,7 +80,9 @@ type ClientImpl struct {
 	// FreeShippingURL 覆盖砍价订单免拼发货端点，仅供本地 HTTP 回归测试注入替身；空值使用官方端点。
 	FreeShippingURL string
 	// AdjustPriceURL 覆盖订单改价端点，仅供测试注入本地 HTTP 服务。
-	AdjustPriceURL      string
+	AdjustPriceURL string
+	// CloseOrderURL 覆盖卖家关闭订单端点，仅供测试注入本地 HTTP 服务。
+	CloseOrderURL       string
 	OrderDetailURL      string
 	SoldOrdersURL       string
 	LoginUserURL        string

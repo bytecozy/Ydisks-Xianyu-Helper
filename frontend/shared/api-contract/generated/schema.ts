@@ -1430,6 +1430,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 卖家关闭待付款或已付款待发货订单（货源台专用，逐单，只请求平台一次；已付款的原路退款） */
+        post: operations["postApiV1OrdersByorder_idClose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/import": {
         parameters: {
             query?: never;
@@ -3274,6 +3291,12 @@ export interface components {
             spec_value: string;
             order_status: string;
             amount: string;
+        };
+        OrderCloseResponse: {
+            order_id: string;
+            /** @enum {string} */
+            status: "succeeded";
+            message: string;
         };
         OrderAdjustPriceResponse: {
             order_id: string;
@@ -11324,6 +11347,100 @@ export interface operations {
                 };
             };
             /** @description 改价能力未装配 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1OrdersByorder_idClose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 闲鱼已关闭订单 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderCloseResponse"];
+                };
+            };
+            /** @description 缺少订单ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 无权操作此订单 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 订单不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description order_not_closable：本地订单不是待付款或待发货，未请求平台 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description order_close_failed：闲鱼明确未关闭；order_close_uncertain：结果未知，不得自动重试 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 关闭订单能力未装配 */
             503: {
                 headers: {
                     [name: string]: unknown;

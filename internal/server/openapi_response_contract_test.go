@@ -58,6 +58,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "remaining-versioned-success", run: TestOpenAPIRemainingVersionedSuccessResponses},
 		{name: "goofish-items", run: TestGoofishItemRoutesSuccessContracts},
 		{name: "goofish-order-price", run: TestAdjustOrderPriceRoute},
+		{name: "goofish-order-close", run: TestCloseOrderRoute},
 	}
 	// scenario 是当前执行的领域真实响应场景。
 	for _, scenario := range scenarios {
