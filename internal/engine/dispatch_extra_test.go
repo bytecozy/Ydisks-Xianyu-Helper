@@ -178,6 +178,34 @@ func TestHandleMessage_RecordsOwnWebSocketEchoWithoutAutoReply(t *testing.T) {
 	}
 }
 
+// TestHandleMessagePersistsEachIncomingFrame 验证同一聊天的询价和紧随其后的平台提示都交给持久化端口。
+func TestHandleMessagePersistsEachIncomingFrame(t *testing.T) {
+	// acc 使用真实消息分发；handler 记录交给持久化端口的消息；cleanup 关闭测试数据库。
+	acc, handler, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	defer acc.Stop()
+
+	// inquiry 是首次实时到达的询价正文。
+	inquiry := plainChatMessage(t, "hi 請問這個號最便宜是多少", "buyer-1", "chat-inquiry")
+	// notice 是紧接正文到达、具有不同平台消息键的安全提示。
+	notice := plainChatMessage(t, "[注意！小心假客服骗钱！]", "buyer-1", "chat-inquiry")
+	inquiry["1"].(map[string]any)["3"] = "inquiry.PNM"
+	notice["1"].(map[string]any)["3"] = "notice.PNM"
+
+	acc.handleMessage(inquiry)
+	acc.handleMessage(notice)
+	acc.handleMessage(inquiry)
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.chats) != 2 {
+		t.Fatalf("两条不同消息都应保存，重复帧应去重：实际保存 %d 条", len(handler.chats))
+	}
+	if handler.chats[0].Text != "hi 請問這個號最便宜是多少" || handler.chats[1].Text != "[注意！小心假客服骗钱！]" {
+		t.Fatal("询价正文与后续提示的持久化顺序错误")
+	}
+}
+
 // TestHandleMessage_NoReminderNoOp 无 reminderContent 的消息不进入回复链也不报错。
 func TestHandleMessage_NoReminderNoOp(t *testing.T) {
 	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
@@ -314,88 +342,57 @@ func TestDispatch_SystemEventWaitsForCapacityInsteadOfDropping(t *testing.T) {
 	}
 }
 
-// TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced 不同 chat_id 的消息各自独立防抖，不合并。
+// TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced 验证两个会话拥有各自独立的回复计时。
 func TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
-	defer cleanup()
-	defer acc.Stop()
+	// dispatcher 保留每个会话的自动回复定时器。
+	dispatcher := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid"})
+	defer dispatcher.stop()
+	dispatcher.scheduleDebouncedReply(ChatMessage{ChatID: "chat-a", Text: "A1"})
+	dispatcher.scheduleDebouncedReply(ChatMessage{ChatID: "chat-b", Text: "B1"})
 
-	// chat1 用于本次流程后续判断的chat1
-	chat1 := ChatMessage{AccountID: "cid", ChatID: "chat-a", Text: "A1", SenderUserID: "b1"}
-	// chat2 用于本次流程后续判断的chat2
-	chat2 := ChatMessage{AccountID: "cid", ChatID: "chat-b", Text: "B1", SenderUserID: "b2"}
-	chat1.CookieStr = "cookie"
-	chat2.CookieStr = "cookie"
-
-	acc.scheduleDebouncedReply(chat1)
-	acc.scheduleDebouncedReply(chat2)
-
-	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.chats) != 2 {
-		t.Fatalf("不同 chat_id 应各自投递，got %d 条: %+v", len(h.chats), h.chats)
-	}
-	// texts 用于本次流程后续判断的texts
-	texts := map[string]bool{}
-	// c 表示当前遍历过程中的c
-	for _, c := range h.chats {
-		texts[c.Text] = true
-	}
-	if !texts["A1"] || !texts["B1"] {
-		t.Errorf("应投递 A1 和 B1，got %+v", texts)
+	dispatcher.debounceMu.Lock()
+	defer dispatcher.debounceMu.Unlock()
+	if len(dispatcher.debounceTimers) != 2 || dispatcher.debounceTimers["chat-a"].lastMsg.Text != "A1" || dispatcher.debounceTimers["chat-b"].lastMsg.Text != "B1" {
+		t.Fatal("两个会话应各自保留待回复消息")
 	}
 }
 
-// TestScheduleDebouncedReply_TimerReset 同一 chat_id 连续消息重置定时器，旧消息被跳过。
+// TestScheduleDebouncedReply_TimerReset 验证连续买家消息重置回复计时并替换待回复内容。
 func TestScheduleDebouncedReply_TimerReset(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
-	defer cleanup()
-	defer acc.Stop()
+	// dispatcher 保存同一会话的回复计时，为测试隔离账号外部依赖。
+	dispatcher := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid"})
+	defer dispatcher.stop()
+	dispatcher.scheduleDebouncedReply(ChatMessage{ChatID: "chat-reset", Text: "first"})
+	dispatcher.debounceMu.Lock()
+	// initial 是第一条消息的定时器，第二条到达后不再使用。
+	initial := dispatcher.debounceTimers["chat-reset"]
+	dispatcher.debounceMu.Unlock()
+	dispatcher.scheduleDebouncedReply(ChatMessage{ChatID: "chat-reset", Text: "second"})
 
-	// 第一条立即调度。
-	first := ChatMessage{AccountID: "cid", ChatID: "chat-reset", Text: "first", SenderUserID: "b1"}
-	first.CookieStr = "cookie"
-	acc.scheduleDebouncedReply(first)
-
-	// 在防抖延迟内再投递第二条，应取消第一条的定时器。
-	time.Sleep(MessageDebounceDelay / 2)
-	// second 用于本次流程后续判断的second
-	second := ChatMessage{AccountID: "cid", ChatID: "chat-reset", Text: "second", SenderUserID: "b1"}
-	second.CookieStr = "cookie"
-	acc.scheduleDebouncedReply(second)
-
-	time.Sleep(MessageDebounceDelay + 300*time.Millisecond)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.chats) != 1 {
-		t.Fatalf("应只投递最后一条，got %d: %+v", len(h.chats), h.chats)
-	}
-	if h.chats[0].Text != "second" {
-		t.Errorf("应投递 second，got %q", h.chats[0].Text)
+	dispatcher.debounceMu.Lock()
+	defer dispatcher.debounceMu.Unlock()
+	// latest 是第二条消息替换后的待回复值及定时器。
+	latest := dispatcher.debounceTimers["chat-reset"]
+	if latest == initial || latest.lastMsg.Text != "second" || !latest.deadline.After(initial.deadline) {
+		t.Fatal("后续消息应替换内容并延后回复")
 	}
 }
 
-// TestScheduleDebouncedReply_StopClearsTimers Stop 后未触发的定时器被取消，不再投递。
+// TestScheduleDebouncedReply_StopClearsTimers 验证停机取消未开始的自动回复，并清空待回复表。
 func TestScheduleDebouncedReply_StopClearsTimers(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
-	defer cleanup()
-
-	// chat 用于本次流程后续判断的聊天
-	chat := ChatMessage{AccountID: "cid", ChatID: "chat-stop", Text: "won't deliver", SenderUserID: "b1"}
-	chat.CookieStr = "cookie"
-	acc.scheduleDebouncedReply(chat)
-	// 立即 Stop，定时器应被取消。
-	acc.Stop()
-
-	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.chats) != 0 {
-		t.Errorf("Stop 后定时器应被取消，不应投递，got %d", len(h.chats))
+	// started 记录定时器是否在停机后仍尝试开始自动回复。
+	started := make(chan struct{}, 1)
+	// dispatcher 用生命周期回调观测取消，不启动真实账号。
+	dispatcher := newMessageDispatcher(messageDispatcherConfig{BeginTask: func() (context.Context, func(), bool) {
+		started <- struct{}{}
+		return nil, nil, false
+	}})
+	dispatcher.scheduleDebouncedReply(ChatMessage{ChatID: "chat-stop", Text: "hi"})
+	dispatcher.stop()
+	select {
+	case <-started:
+		t.Fatal("停机后的定时器仍尝试自动回复")
+	case <-time.After(MessageDebounceDelay + 100*time.Millisecond):
 	}
 }
 
@@ -422,8 +419,8 @@ func (h *cancelAwareHandler) OnPasswordLoginRefresh(context.Context, string) boo
 // OnAccountAlert 封装On账号Alert业务协调。
 func (h *cancelAwareHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
-// TestStopCancelsInFlightReplyHandler 封装TestStopCancelsInFlight回复Handler业务协调。
-func TestStopCancelsInFlightReplyHandler(t *testing.T) {
+// TestStopCancelsInFlightChatHandler 验证停机取消正在处理的入站聊天。
+func TestStopCancelsInFlightChatHandler(t *testing.T) {
 	// handler 用于本次流程后续判断的handler
 	handler := &cancelAwareHandler{started: make(chan struct{}), canceled: make(chan struct{})}
 	// acc 用于本次流程后续判断的acc
@@ -433,7 +430,9 @@ func TestStopCancelsInFlightReplyHandler(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	acc.lifecycle.start(ctx, cancel)
-	acc.scheduleDebouncedReply(ChatMessage{ChatID: "cancel-chat", SenderUserID: "buyer", Text: "hi"})
+	// frame 模拟已接纳且持久化尚未完成的买家聊天。
+	frame := plainChatMessage(t, "hi", "buyer", "cancel-chat")
+	go acc.handleMessage(frame)
 	select {
 	case <-handler.started:
 	case <-time.After(MessageDebounceDelay + time.Second):
@@ -574,33 +573,6 @@ func TestCleanupDedupLocked_TriggeredByMarkAndCheck(t *testing.T) {
 	// 过期消息应被清理，仅剩新消息 1 条（或新消息+残留，但应远小于 ProcessedIDsMaxSize）。
 	if remaining >= ProcessedIDsMaxSize {
 		t.Errorf("清理应大幅缩减 processed，剩 %d", remaining)
-	}
-}
-
-// TestScheduleDebouncedReply_HandlerErrorLogged reply.Handle 报错仅记录日志，不影响 handler 投递。
-func TestScheduleDebouncedReply_HandlerErrorLogged(t *testing.T) {
-	// acc、h、store、cleanup 用于本次流程后续判断的acc、h、store、cleanup
-	acc, h, store, cleanup := newAccountForTest(t)
-	defer cleanup()
-	defer acc.Stop()
-
-	// 让 reply.Handle 走默认回复路径并成功发送（sender 是 acc 自身，无 conn 会失败但仅记录日志）。
-	// 这里主要验证防抖回调路径在 reply 报错时仍会调用 handler.HandleChatMessage。
-	// fixtureErr 写入默认回复，确保此场景确实覆盖发送器无连接的失败路径。
-	if _, fixtureErr := store.DB.ExecContext(context.Background(), `INSERT INTO default_replies (cookie_id,enabled,reply_content) VALUES ('cid',1,'测试回复')`); fixtureErr != nil {
-		t.Fatal(fixtureErr)
-	}
-	// chat 用于本次流程后续判断的聊天
-	chat := ChatMessage{
-		AccountID: "cid", ChatID: "chat-err", Text: "hi", ItemID: "seller-item",
-		SenderUserID: "b1", CookieStr: "unb=123;",
-	}
-	acc.scheduleDebouncedReply(chat)
-	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.chats) != 1 {
-		t.Errorf("应投递到 handler，got %d", len(h.chats))
 	}
 }
 

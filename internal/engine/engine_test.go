@@ -17,7 +17,7 @@ import (
 type recordingHandler struct {
 	// mu 保护聊天回调、出站回显和续期计数，测试中的异步防抖回调可与断言并发执行。
 	mu sync.Mutex
-	// chats 保存进入自动回复旁路的买家入站消息。
+	// chats 保存交给持久化端口的买家入站消息。
 	chats []ChatMessage
 	// outgoing 保存官方客户端或本程序发送后观察到的出站消息回显。
 	outgoing []OutgoingChatMessage
@@ -202,42 +202,23 @@ func TestDedup_SkipsDuplicateWithinExpiry(t *testing.T) {
 	}
 }
 
-// TestDebounce_CoalescesRapidMessages 连续消息只投递最后一条。
+// TestDebounce_CoalescesRapidMessages 验证连续接纳的聊天消息只调度一次自动回复，并以最近接纳的消息为依据。
 func TestDebounce_CoalescesRapidMessages(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
-	defer cleanup()
-	defer acc.Stop()
+	// dispatcher 接收两条已持久化的消息并维护回复定时器。
+	dispatcher := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid"})
+	defer dispatcher.stop()
 
-	// decrypted 用于本次流程后续判断的decrypted
-	decrypted := mustDecryptGoldenSample(t)
-	// chat 用于本次流程后续判断的聊天
-	chat := extractChatMessage(decrypted, "cid", "cookie")
-	// 修改文本模拟连续多条。
-	chat1 := *chat
-	chat1.Text = "第一条"
-	// chat2 用于本次流程后续判断的chat2
-	chat2 := *chat
-	chat2.Text = "第二条"
-	// chat3 用于本次流程后续判断的chat3
-	chat3 := *chat
-	chat3.Text = "第三条"
+	// newer 接纳得更晚，但较早完成持久化。
+	newer := ChatMessage{ChatID: "chat", Text: "第二条", ObservedAt: 2}
+	// older 较早接纳，模拟数据库等待导致它最后完成。
+	older := ChatMessage{ChatID: "chat", Text: "第一条", ObservedAt: 1}
+	dispatcher.scheduleDebouncedReply(newer)
+	dispatcher.scheduleDebouncedReply(older)
 
-	// 用不同 decrypted（不同 msgID）触发防抖，验证同一 chat_id 合并。
-	acc.scheduleDebouncedReply(chat1)
-	acc.scheduleDebouncedReply(chat2)
-	acc.scheduleDebouncedReply(chat3)
-
-	// 等待防抖延迟 + 余量。
-	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.chats) != 1 {
-		t.Fatalf("防抖应只投递最后一条，got %d", len(h.chats))
-	}
-	if h.chats[0].Text != "第三条" {
-		t.Errorf("应投递最后一条，got %q", h.chats[0].Text)
+	dispatcher.debounceMu.Lock()
+	defer dispatcher.debounceMu.Unlock()
+	if len(dispatcher.debounceTimers) != 1 || dispatcher.debounceTimers["chat"].lastMsg.Text != "第二条" {
+		t.Fatal("应只对最近接纳的消息调度回复")
 	}
 }
 

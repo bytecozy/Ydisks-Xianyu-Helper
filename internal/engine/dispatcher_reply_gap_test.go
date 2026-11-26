@@ -138,7 +138,7 @@ func TestMessageDispatcherHandlerErrors(t *testing.T) {
 	d3.handleMessageContext(ctx, ownEchoFrame())
 }
 
-// TestMessageDispatcherDedupBackupKeyAndDebounceFailures 验证无消息 ID 时的备用去重键，以及防抖回调的拒绝与处理失败。
+// TestMessageDispatcherDedupBackupKeyAndDebounceFailures 验证备用去重键、停机拒绝回复以及消息持久化失败。
 func TestMessageDispatcherDedupBackupKeyAndDebounceFailures(t *testing.T) {
 	// dispatcher 是本用例构造的消息分发器，不启动账号网络连接
 	dispatcher := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid"})
@@ -166,22 +166,15 @@ func TestMessageDispatcherDedupBackupKeyAndDebounceFailures(t *testing.T) {
 	}
 	rejected.stop()
 
-	// 防抖回调：聊天处理失败，且被后一条消息替换时旧定时器被停止。
-	// done 在处理任务释放时关闭。
-	done := make(chan struct{})
-	// failing 是预置失败行为的测试替身，用于驱动错误分支
+	// failing 是模拟入站持久化失败的处理器，应阻止本条消息发起自动回复。
 	failing := &chatErrHandler{recordingHandler: &recordingHandler{}}
-	// failed 是聊天处理总是失败的分发器
-	failed := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid", CurrentHandler: func() Handler { return failing },
-		BeginTask: func() (context.Context, func(), bool) { return context.Background(), func() { close(done) }, true }})
-	failed.scheduleDebouncedReply(chatMsg("first", "i", "c2"))
-	failed.scheduleDebouncedReply(chatMsg("second", "i", "c2"))
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("防抖处理未完成")
+	// failed 将解析后的聊天交给始终失败的持久化端口。
+	failed := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid", CurrentHandler: func() Handler { return failing }})
+	defer failed.stop()
+	failed.handleMessageContext(context.Background(), plainChatMessage(t, "保存失败", "buyer", "chat"))
+	if len(failed.debounceTimers) != 0 {
+		t.Fatal("持久化失败的入站消息不应调度自动回复")
 	}
-	failed.stop()
 }
 
 // TestCanAutoReplyGuards 验证自动回复门禁在缺商品、角色读取失败、归属能力缺失、写标记失败与账号切换下拒绝。

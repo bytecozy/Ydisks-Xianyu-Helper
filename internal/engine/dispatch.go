@@ -137,13 +137,6 @@ func (a *Account) cleanupDedupLocked(now time.Time) {
 	a.messageDispatcher.cleanupDedupLocked(now)
 }
 
-// scheduleDebouncedReply 为 chat_id 调度防抖回复：
-// 同一 chat_id 连续来消息时取消旧定时器、用最新消息重新计时，1s 后投递最后一条。
-// scheduleDebouncedReply 封装scheduleDebounced回复业务协调。
-func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
-	a.messageDispatcher.scheduleDebouncedReply(chat)
-}
-
 // extractMessageID 提取闲鱼消息状态接口使用的消息 ID。
 //
 // 实时 WS 聊天消息同时包含两种 ID：message["1"]["3"] 是消息在 IM

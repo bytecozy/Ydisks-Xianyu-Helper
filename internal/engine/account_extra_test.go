@@ -201,7 +201,7 @@ func TestStop_IdempotentAndClearsTimers(t *testing.T) {
 
 	// 调度一个防抖定时器，验证 Stop 会清空。
 	chat := ChatMessage{AccountID: "cid", ChatID: "c1", Text: "hi"}
-	acc.scheduleDebouncedReply(chat)
+	acc.messageDispatcher.scheduleDebouncedReply(chat)
 	acc.debounceMu.Lock()
 	if len(acc.debounceTimers) != 1 {
 		t.Fatalf("应有 1 个定时器，got %d", len(acc.debounceTimers))

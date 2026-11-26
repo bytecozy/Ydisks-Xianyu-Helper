@@ -74,7 +74,7 @@ func (fixture *roleHandlerFixture) SaveChatSessionRole(_ context.Context, accoun
 	return nil
 }
 
-// TestBuyerMessagesRemainVisibleWithoutAutoReply 验证真实防抖分发链保留买家侧聊天观察，并在 API 和默认回复之前检查身份；t 管理夹具。
+// TestBuyerMessagesRemainVisibleWithoutAutoReply 验证同一会话逐条入库，合并自动回复，并在 API 和默认回复之前检查会话角色。
 func TestBuyerMessagesRemainVisibleWithoutAutoReply(t *testing.T) {
 	// seller 表示当前账号是否是会话商品发布人。
 	for _, seller := range []bool{false, true} {
@@ -109,7 +109,14 @@ func TestBuyerMessagesRemainVisibleWithoutAutoReply(t *testing.T) {
 					return context.Background(), func() { close(done) }, true
 				},
 			})
-			dispatcher.scheduleDebouncedReply(chatMsg("你好", "conversation-item", "conversation"))
+			// first 是同一会话防抖窗口内先接收的真实入站帧。
+			first := plainChatMessage(t, "你好", "buyer", "conversation")
+			// latest 随后到达，用于触发合并后的唯一回复。
+			latest := plainChatMessage(t, "请问最低价", "buyer", "conversation")
+			first["1"].(map[string]any)["3"] = "first.PNM"
+			latest["1"].(map[string]any)["3"] = "latest.PNM"
+			dispatcher.handleMessageContext(context.Background(), first)
+			dispatcher.handleMessageContext(context.Background(), latest)
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):
@@ -117,8 +124,8 @@ func TestBuyerMessagesRemainVisibleWithoutAutoReply(t *testing.T) {
 			}
 			dispatcher.stop()
 			cleanup()
-			if len(observer.chats) != 1 {
-				t.Fatal("身份门禁不应丢弃买家侧聊天消息")
+			if len(observer.chats) != 2 {
+				t.Fatal("同一会话的两条入站消息均应持久化")
 			}
 			if seller && len(sender.texts) != 1 {
 				t.Fatal("卖家没有收到预期的自动回复")
