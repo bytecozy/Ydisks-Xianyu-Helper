@@ -81,6 +81,8 @@ git diff --check
 
 ## 后续窄范围安全修复记录
 
+- 2026-11-26（BYT-386 买家消息延迟）：同一会话的询价正文与平台提示在 1 秒内到达时，回复定时器会用后一条消息替换前一条，原实现直到定时器触发才持久化和推送。入站帧现在去重后逐条持久化并实时发布，回复定时器按会话合并回复。回归复现询价正文与提示相邻到达，覆盖重复帧去重、乱序完成持久化、回复计时、会话角色和错误路径。
+
 - 2026-11-17（BYT-359 单订单刷新自锁修复，本地未发布）：`RefreshSingle` 在账号凭证锁内保存平台响应 Cookie 后直接同步运行时，运行时 `UpdateCookieContext` 再次获取同一非重入锁，造成 Cookie 轮换时单订单刷新及后续凭证调用无法完成。现保留锁内凭证复核与提交，运行时同步移到释放锁后；回归覆盖正常 Jar 轮换、Token 错误携带轮换及旧扁平 Cookie 写回，修复前均稳定失败。HTTP Handler 传入 90 秒总预算，平台请求、数据库操作和运行时同步继承该 Context，超时返回标准 504 `order_refresh_timeout` 并同步 OpenAPI。没有新增后台协程，没有修改冻结 CAPTCHA、数据库或六阶段状态；未调用真实平台交易，线上该次卡死没有 goroutine dump，代码自锁与事故日志一致但不能据此排除其他现场因素。
 
 - 2026-10-18（新增 `make smoke` 冒烟测试，测试基础设施，本地未发布）：新增 `tools/smoke` 与 `make smoke`、CI `smoke` 任务。流程为构建真实 `xianyu-server`，以随机本地端口、临时 SQLite 和独立数据密钥文件启动（清除 `DATABASE_URL`、`XIANYU_DATA_KEY`、`XIANYU_ADMIN_PASSWORD`），依次验证 `/health`、首次初始化、未登录 401、登录/登出/错误密码、`accounts/cards/orders/items` 列表、嵌入式前端首页与 SIGTERM 优雅退出；默认保留 Chromium，仅在用户明确确认不可用时通过 `SMOKE_NO_BROWSER=1` 关闭，CI 任务安装 Chromium 与系统依赖。`tools/smoke` 单元测试用假服务覆盖六类回归与进程停止分支（语句覆盖 84%，未覆盖为 `main` 与不可达的序列化/关闭错误分支）。未修改业务代码、数据库 schema、HTTP/OpenAPI、冻结 CAPTCHA 或六阶段状态；CI 任务中 Chromium 安装路径未在 GitHub Runner 上实测。

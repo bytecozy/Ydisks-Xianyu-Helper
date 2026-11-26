@@ -214,15 +214,24 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 		return
 	}
 
-	// chat 用于本次流程后续判断的聊天
+	// chat 是解析出的普通入站消息；每条消息去重后立即交给持久化端口。
 	chat := extractChatMessage(decrypted, d.cookieID, d.currentCookie())
-	if chat != nil && chat.Text != "" {
-		chat.ObservedAt = observedAt
-		if !d.markAndCheckDedup(decrypted, chat) {
+	if chat == nil || chat.Text == "" {
+		return
+	}
+	chat.ObservedAt = observedAt
+	if !d.markAndCheckDedup(decrypted, chat) {
+		return
+	}
+	// handler 持久化并发布每条聊天消息，防抖只合并自动回复。
+	if handler := d.currentHandler(); handler != nil {
+		// err 表示本条消息无法持久化，跳过它的自动回复。
+		if err := handler.HandleChatMessage(ctx, *chat); err != nil {
+			d.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
 			return
 		}
-		d.scheduleDebouncedReply(*chat)
 	}
+	d.scheduleDebouncedReply(*chat)
 }
 
 // markAndCheckDedup 提取消息 ID，检查有效期内是否已经处理。
@@ -291,7 +300,7 @@ func (d *messageDispatcher) cleanupDedupLocked(now time.Time) {
 	}
 }
 
-// scheduleDebouncedReply 为同一聊天会话保留最后一条消息，并在延迟后投递。
+// scheduleDebouncedReply 为同一会话合并自动回复，消息已经由入站处理器逐条持久化。
 func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
 	d.debounceMu.Lock()
 	defer d.debounceMu.Unlock()
@@ -300,8 +309,12 @@ func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
 	if // old、ok 用于本次流程后续判断的old、ok
 	old, ok := d.debounceTimers[chat.ChatID]; ok && old.timer != nil {
 		old.timer.Stop()
+		// 并发持久化可能让较早接纳的消息较晚完成，仍用较新的消息作为回复依据。
+		if chat.ObservedAt < old.lastMsg.ObservedAt {
+			chat = old.lastMsg
+		}
 	}
-	// entry 用于本次流程后续判断的entry
+	// entry 保存本轮回复采用的消息和定时器，后续消息可替换它。
 	entry := &debounceEntry{lastMsg: chat, deadline: deadline}
 	d.debounceTimers[chat.ChatID] = entry
 	entry.timer = time.AfterFunc(MessageDebounceDelay, func() {
@@ -322,14 +335,6 @@ func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
 			return
 		}
 		defer finish()
-		if // handler 用于本次流程后续判断的handler
-		handler := d.currentHandler(); handler != nil {
-			if // err 用于本次流程后续判断的err
-			err := handler.HandleChatMessage(ctx, lastMessage); err != nil {
-				d.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
-				return
-			}
-		}
 		if d.reply != nil && d.canAutoReply(ctx, lastMessage) {
 			if // err 用于本次流程后续判断的err
 			err := d.reply.Handle(ctx, lastMessage); err != nil {

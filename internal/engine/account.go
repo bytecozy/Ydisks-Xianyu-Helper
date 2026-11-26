@@ -68,12 +68,9 @@ const (
 	EventSystemError          = "system_error"
 )
 
-// Handler 是业务逻辑注入点（Phase 3 实现）。
-// 收到一条防抖后的聊天消息时回调；返回错误仅记录日志、不影响主循环。
-// 注：生产 handlerAdapter.HandleChatMessage 当前为 no-op，留作未来注入聊天旁路处理
-// （如外部消息持久化）。回复链由 ReplyService.Handle 完成，不依赖本回调。
-// Handler 用于本次流程后续判断的Handler
+// Handler 是账号将聊天、系统事件和状态交给上层业务的端口。
 type Handler interface {
+	// HandleChatMessage 持久化并发布一条通过去重的入站消息，错误只阻止本条消息的自动回复。
 	HandleChatMessage(ctx context.Context, m ChatMessage) error
 	// HandleSystemEvent 处理平台系统事件。系统卡片永远不进入 AI 回复链，
 	// 这里只把事件交给自动化中心，由自动化规则决定是否执行。
